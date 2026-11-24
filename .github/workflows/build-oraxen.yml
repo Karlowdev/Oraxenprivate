@@ -1,3 +1,4 @@
+
 # Manual build workflow for authorized Oraxen license holders.
 name: Build Oraxen (authorized use)
 
@@ -22,6 +23,7 @@ jobs:
     name: Compile Oraxen
     runs-on: ubuntu-latest
     timeout-minutes: 45
+
     steps:
       - name: Check out Oraxen source
         uses: actions/checkout@v4
@@ -56,17 +58,45 @@ jobs:
         run: ./gradlew --no-daemon clean shadowJar -PmcVersion="${ORAXEN_BUILD_VERSION}"
 
       - name: Verify output
+        id: verify
         working-directory: oraxen-source
         shell: bash
         run: |
           set -euo pipefail
-          test -s build/libs/oraxen-*.jar
-          ls -lh build/libs/oraxen-*.jar
+
+          echo "Generated JAR files:"
+          ls -lh build/libs/
+
+          mapfile -t jars < <(
+            find build/libs -maxdepth 1 -type f \
+              -name 'oraxen-*.jar' \
+              ! -name '*-plain.jar' \
+              ! -name '*-sources.jar' \
+              ! -name '*-javadoc.jar'
+          )
+
+          if [[ ${#jars[@]} -ne 1 ]]; then
+            echo "::error::Expected exactly one plugin JAR, found ${#jars[@]}"
+            exit 1
+          fi
+
+          JAR="${jars[0]}"
+
+          if [[ ! -s "$JAR" ]]; then
+            echo "::error::Plugin JAR is empty"
+            exit 1
+          fi
+
+          echo "Verified plugin JAR:"
+          ls -lh "$JAR"
+
+          echo "jar_path=oraxen-source/$JAR" >> "$GITHUB_OUTPUT"
 
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
           name: oraxen-build-${{ inputs.minecraft_version }}-${{ github.run_number }}
-          path: oraxen-source/build/libs/oraxen-*.jar
+          path: ${{ steps.verify.outputs.jar_path }}
           if-no-files-found: error
           retention-days: 3
+          
